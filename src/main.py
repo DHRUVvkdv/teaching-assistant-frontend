@@ -232,12 +232,15 @@ def send_query(prompt, teacher_name, target_language):
         return None
 
 
-def searchable_dropdown(options: Dict[str, str], key: str) -> str:
+def searchable_dropdown(
+    options: Dict[str, str], key: str, default: str = "english"
+) -> str:
     container = st.container()
     selected = container.selectbox(
         "Select or type to search",
         options.keys(),
         key=f"{key}_select",
+        index=list(options.keys()).index(default),
         format_func=lambda x: x.title(),
     )
 
@@ -263,7 +266,11 @@ def main():
 
     # Sidebar for customization
     st.sidebar.title("Customize Your Experience")
-    theme_name = st.sidebar.selectbox("Choose a theme", list(THEMES.keys()))
+    theme_name = st.sidebar.selectbox(
+        "Choose a theme",
+        list(THEMES.keys()),
+        index=list(THEMES.keys()).index("Accessible Dark"),
+    )
     font = st.sidebar.selectbox("Choose a font", FONTS)
 
     # Apply custom CSS
@@ -274,7 +281,9 @@ def main():
 
     # Searchable language dropdown
     st.subheader("Select Output Language")
-    target_language = searchable_dropdown(LANGUAGES, "language")
+    target_language = searchable_dropdown(
+        LANGUAGES, "backend_language", default="english"
+    )
 
     # Query input
     prompt = st.text_area("Enter your question:", height=100)
