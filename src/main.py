@@ -2,11 +2,17 @@ import streamlit as st
 import requests
 import json
 from typing import Dict
+import boto3
+from botocore.exceptions import ClientError
+import re
 
 # Constants
 # API_BASE_URL = "http://0.0.0.0:8000"
 API_BASE_URL = st.secrets["API_BASE_URL"]
 API_KEY = st.secrets["API_KEY"]
+USER_POOL_ID = st.secrets["USER_POOL_ID"]
+CLIENT_ID = st.secrets["CLIENT_ID"]
+REGION_NAME = st.secrets["REGION_NAME"]
 
 # UI Customization Options
 THEMES = {
@@ -212,6 +218,16 @@ def apply_custom_css(theme, font):
 
 def send_query(prompt, teacher_name, target_language):
     try:
+        headers = {
+            "accept": "application/json",
+            "Content-Type": "application/json",
+            "API-Key": API_KEY,
+        }
+
+        # Add the user's authentication token if available
+        if "auth_token" in st.session_state:
+            headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
         response = requests.post(
             f"{API_BASE_URL}/combined_query",
             json={
@@ -219,11 +235,7 @@ def send_query(prompt, teacher_name, target_language):
                 "teacher_name": teacher_name,
                 "target_language": target_language,
             },
-            headers={
-                "accept": "application/json",
-                "Content-Type": "application/json",
-                "API-Key": API_KEY,
-            },
+            headers=headers,
         )
         response.raise_for_status()
         return response.json()
@@ -261,7 +273,139 @@ def searchable_dropdown(
     return options[selected]
 
 
-def main():
+def unauthenticated_main():
+    st.title("Educational Query Assistant")
+    tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
+    with tab1:
+        sign_in_page()
+    with tab2:
+        sign_up()
+
+
+def sign_up():
+    st.subheader("Sign Up")
+    email = st.text_input("Email", key="signup_email")
+    password = st.text_input("Password", type="password", key="signup_password")
+    confirm_password = st.text_input(
+        "Confirm Password", type="password", key="signup_confirm_password"
+    )
+
+    # Password validation
+    password_valid = False
+    if password:
+        length_check = len(password) >= 8
+        number_check = re.search(r"\d", password) is not None
+        special_char_check = re.search(r"[!@#$%^&*(),.?\":{}|<>]", password) is not None
+        uppercase_check = re.search(r"[A-Z]", password) is not None
+        lowercase_check = re.search(r"[a-z]", password) is not None
+
+        password_valid = all(
+            [
+                length_check,
+                number_check,
+                special_char_check,
+                uppercase_check,
+                lowercase_check,
+            ]
+        )
+
+        st.markdown(
+            """
+        <style>
+        .password-check {
+            margin-bottom: 5px;
+        }
+        .valid {
+            color: green;
+        }
+        .invalid {
+            color: red;
+        }
+        </style>
+        """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"""
+        <div class="password-check {'valid' if length_check else 'invalid'}">
+            {'✓' if length_check else '✗'} Minimum 8 characters
+        </div>
+        <div class="password-check {'valid' if number_check else 'invalid'}">
+            {'✓' if number_check else '✗'} Contains at least 1 number
+        </div>
+        <div class="password-check {'valid' if special_char_check else 'invalid'}">
+            {'✓' if special_char_check else '✗'} Contains at least 1 special character
+        </div>
+        <div class="password-check {'valid' if uppercase_check else 'invalid'}">
+            {'✓' if uppercase_check else '✗'} Contains at least 1 uppercase letter
+        </div>
+        <div class="password-check {'valid' if lowercase_check else 'invalid'}">
+            {'✓' if lowercase_check else '✗'} Contains at least 1 lowercase letter
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
+    passwords_match = password == confirm_password
+    if not passwords_match and confirm_password:
+        st.error("Passwords do not match")
+
+    signup_button = st.button(
+        "Sign Up",
+        key="signup_button",
+        disabled=not (password_valid and passwords_match),
+    )
+
+    if signup_button:
+        try:
+            client = boto3.client("cognito-idp", region_name=REGION_NAME)
+            response = client.sign_up(
+                ClientId=CLIENT_ID,
+                Username=email,
+                Password=password,
+                UserAttributes=[
+                    {"Name": "email", "Value": email},
+                ],
+            )
+            st.success(
+                "Sign up successful! Please check your email for verification code."
+            )
+            st.session_state.email = email
+            st.session_state.temp_password = password  # Store password temporarily
+            st.experimental_rerun()
+        except ClientError as e:
+            st.error(f"An error occurred: {str(e)}")
+
+
+def sign_in(email, password):
+    try:
+        client = boto3.client("cognito-idp", region_name=REGION_NAME)
+        response = client.initiate_auth(
+            ClientId=CLIENT_ID,
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={"USERNAME": email, "PASSWORD": password},
+        )
+        st.session_state.authenticated = True
+        st.session_state.auth_token = response["AuthenticationResult"]["IdToken"]
+        return True
+    except ClientError as e:
+        st.error(f"An error occurred during sign in: {str(e)}")
+        return False
+
+
+def sign_in_page():
+    st.subheader("Sign In")
+    email = st.text_input("Email", key="signin_email")
+    password = st.text_input("Password", type="password", key="signin_password")
+
+    if st.button("Sign In", key="signin_button"):
+        if sign_in(email, password):
+            st.success("Signed in successfully!")
+            st.experimental_rerun()
+
+
+def authenticated_main():
     st.title("Educational Query Assistant")
 
     # Sidebar for customization
@@ -320,6 +464,56 @@ def main():
                 st.error("Failed to process query. Please try again.")
         else:
             st.warning("Please enter a query before submitting.")
+
+    if st.sidebar.button("Sign Out"):
+        sign_out()
+
+
+def sign_out():
+    st.session_state.authenticated = False
+    st.success("Signed out successfully!")
+    st.experimental_rerun()
+
+
+def verify():
+    st.subheader("Verify Email")
+    verification_code = st.text_input("Verification Code", key="verify_code")
+
+    if st.button("Verify", key="verify_button"):
+        try:
+            client = boto3.client("cognito-idp", region_name=REGION_NAME)
+            response = client.confirm_sign_up(
+                ClientId=CLIENT_ID,
+                Username=st.session_state.email,
+                ConfirmationCode=verification_code,
+            )
+            st.success("Email verified successfully!")
+
+            # Attempt to sign in automatically
+            if sign_in(st.session_state.email, st.session_state.temp_password):
+                st.session_state.pop("email", None)
+                st.session_state.pop("temp_password", None)
+                st.experimental_rerun()
+            else:
+                st.error(
+                    "Verification successful, but automatic sign-in failed. Please sign in manually."
+                )
+                st.session_state.pop("email", None)
+                st.session_state.pop("temp_password", None)
+        except ClientError as e:
+            st.error(f"An error occurred: {str(e)}")
+
+
+def main():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        authenticated_main()
+    elif "email" in st.session_state:
+        verify()
+    else:
+        unauthenticated_main()
 
 
 if __name__ == "__main__":
