@@ -4,7 +4,8 @@ import json
 from typing import Dict
 
 # Constants
-API_BASE_URL = "http://0.0.0.0:8000"
+# API_BASE_URL = "http://0.0.0.0:8000"
+API_BASE_URL = st.secrets["API_BASE_URL"]
 API_KEY = st.secrets["API_KEY"]
 
 # UI Customization Options
