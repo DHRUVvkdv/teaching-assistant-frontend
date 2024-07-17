@@ -8,6 +8,7 @@ import re
 import pandas as pd
 import os
 from boto3.dynamodb.conditions import Attr
+import time
 
 # Constants
 # API_BASE_URL = "http://0.0.0.0:8000"
@@ -466,31 +467,27 @@ def instructor_portal():
 
         df = pd.DataFrame(documents)
 
-        # Add a "Process" button for unprocessed documents
-        def process_button(filename, processed):
-            if processed == "No":
-                button_key = f"process_{filename}"
-                if st.button("Process", key=button_key):
-                    if trigger_processing(filename, professor):
-                        st.success(f"Processing triggered for {filename}")
-                        return "Processing..."
-                    else:
-                        st.error(f"Failed to trigger processing for {filename}")
-                        return "Failed"
-            return processed
-
-        df["Processed"] = df.apply(
-            lambda row: process_button(row["Document Name"], row["Processed"]),
-            axis=1,
-        )
-
         # Reorder columns
         df = df[["Document Name", "Upload Date", "Size (bytes)", "Processed"]]
 
         # Display the table without index
         st.table(df.set_index("Document Name"))
+
+        # Add a button to process all documents
+        if st.button("Process All Documents"):
+            if trigger_processing(professor):
+                st.success(f"Processing triggered for all documents of {professor}")
+                st.info("Refreshing page to show updated status...")
+                time.sleep(2)  # Give a moment for the user to read the message
+                st.experimental_rerun()
+            else:
+                st.error("Failed to trigger processing for all documents")
     else:
         st.write("No documents found for this professor.")
+
+    # Add a refresh button
+    if st.button("Refresh Document Status"):
+        st.experimental_rerun()
 
 
 def fetch_documents(professor):
@@ -516,17 +513,35 @@ def upload_to_s3(file, professor):
         return False
 
 
-def trigger_processing(filename, professor):
-    """Trigger the backend API to process a document."""
+def trigger_processing(professor):
+    """Trigger the backend API to process all PDFs for a professor."""
     try:
+        headers = {
+            "accept": "application/json",
+            "API-Key": API_KEY,
+        }
+
+        # Add the user's authentication token if available
+        if "auth_token" in st.session_state:
+            headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
         response = requests.post(
-            f"{API_BASE_URL}/process_document",
-            json={"filename": filename, "professor": professor},
-            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+            f"{API_BASE_URL}/process_all_pdfs",
+            params={"teacher_name": professor},
+            headers=headers,
         )
-        return response.status_code == 200
+        response.raise_for_status()
+
+        if response.status_code == 200:
+            st.success(f"Processing triggered for all documents of {professor}")
+            return True
+        else:
+            st.error(
+                f"Failed to trigger processing. Status code: {response.status_code}"
+            )
+            return False
     except requests.RequestException as e:
-        print(f"Error triggering document processing: {e}")
+        st.error(f"Error triggering document processing: {str(e)}")
         return False
 
 
