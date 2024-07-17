@@ -1,8 +1,10 @@
-# Educational Query Assistant
+# AI-Enhanced Teaching Assistant: Bridging Instructor Knowledge and Web Intelligence
 
 ## Project Live Link
 
 [Click here to view the live project](https://teachingassistant-dv.streamlit.app/)
+[![Instructor side]](https://youtu.be/aX303VJL-Ew)
+[![Student side]](https://youtu.be/aDXYTqY8-R4)
 
 ## Table of Contents
 
