@@ -4,15 +4,11 @@
 
 ## Student Side
 
-https://github.com/USER/REPO/assets/USER_ID/ASSET_ID.mp4
-
 Student Side | AI-Enhanced Teaching Assistant: Bridging Instructor Knowledge and Web Intelligence
 
 [Watch full Student side demo](https://youtu.be/aDXYTqY8-R4)
 
 ## Instructor Side
-
-https://github.com/USER/REPO/assets/USER_ID/ASSET_ID.mp4
 
 Instructor Side | AI-Enhanced Teaching Assistant: Bridging Instructor Knowledge and Web Intelligence
 
