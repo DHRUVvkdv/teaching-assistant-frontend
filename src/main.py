@@ -218,6 +218,59 @@ LANGUAGES = {
     "yoruba": "yo",
     "zulu": "zu",
 }
+TEACHER_INFO = {
+    "drvinay": {
+        "description": """
+        Dr. Vinay | Physics Professor
+        
+        Expertise: Classical Physics
+        
+        Uploaded Notes:
+        • Electrostatics
+        • Pressure and its measurement
+        • Fundamental physics principles
+        
+        Known for clear explanations and practical examples.
+        """,
+        "placeholder": "Try: 'Explain the concept of pressure in fluids'",
+    },
+    "lewas": {
+        "description": """
+        LEWAS | Learning Enhanced Watershed Assessment System
+        
+        Interdisciplinary Research Initiative:
+        • Engineering Education
+        • Civil Engineering
+        • Biological Systems Engineering
+        • Computer Science
+        
+        Key Features:
+        • Real-time water and weather monitoring
+        • Located at Webb Branch, Virginia Tech
+        • Monitors flow rate, depth, pH, oxygen, conductivity, temperature
+        
+        Focus: Water sustainability education and research
+        """,
+        "placeholder": "Try: 'Explain the functioning of the LEWAS Lab'",
+    },
+    "historyoftech": {
+        "description": """
+        History of Technology | Course Overview
+        
+        Topics Covered:
+        • Evolution of human innovation
+        • Birth of Personal Computing
+        • Rise of Home Video Game Consoles
+        
+        Course Materials:
+        • Comprehensive overview of technology and innovation
+        • Deep dives into computing and gaming history
+        
+        Explore how technology shapes our past, present, and future.
+        """,
+        "placeholder": "Try: 'Explain the evolution of video game technology'",
+    },
+}
 
 
 def apply_custom_css(theme, font):
@@ -630,9 +683,16 @@ def authenticated_main():
 
         if not st.session_state.get("show_instructor_portal", False):
             st.subheader("Query Settings")
+
             teacher_name = st.selectbox(
-                "Select Teacher", ["drvinay", "lewas", "historyoftech"]
+                "Select Teacher",
+                list(TEACHER_INFO.keys()),
+                format_func=lambda x: x.capitalize(),  # Capitalize the first letter
             )
+            if teacher_name:
+                st.markdown("### Teacher Information")
+                st.markdown(TEACHER_INFO[teacher_name]["description"])
+                st.markdown("---")
 
             # Searchable language dropdown
             st.subheader("Select Output Language")
@@ -661,7 +721,11 @@ def authenticated_main():
         instructor_portal()
     else:
         # Query input
-        prompt = st.text_area("Enter your question:", height=100)
+        prompt = st.text_area(
+            "Enter your question:",
+            height=100,
+            placeholder=TEACHER_INFO[teacher_name]["placeholder"],
+        )
 
         if st.button("Submit Query"):
             if prompt:
@@ -675,7 +739,7 @@ def authenticated_main():
                     st.subheader("Professor's Notes")
                     st.write(result["result"]["Professor's Notes"])
 
-                    st.subheader("Internet Notes")
+                    st.subheader("Internet Notes (Powered by Tavily)")
                     st.write(result["result"]["Internet Notes"])
 
                     st.subheader("Sources")
@@ -683,12 +747,12 @@ def authenticated_main():
                     for source in result["result"]["Professor's Sources"]:
                         st.write(f"- {source}")
 
-                    st.write("Internet Sources:")
+                    st.write("Internet Sources (Powered by Tavily):")
                     for source in result["result"]["Internet Sources"]:
                         st.write(f"- {source}")
 
                     if result["result"]["Extra Sources"]:
-                        st.subheader("Extra Sources")
+                        st.subheader("Further Reading")
                         for source in result["result"]["Extra Sources"]:
                             st.write(f"- {source}")
                 else:
