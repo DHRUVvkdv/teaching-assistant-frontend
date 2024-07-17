@@ -5,6 +5,9 @@ from typing import Dict
 import boto3
 from botocore.exceptions import ClientError
 import re
+import pandas as pd
+import os
+from boto3.dynamodb.conditions import Attr
 
 # Constants
 # API_BASE_URL = "http://0.0.0.0:8000"
@@ -12,7 +15,28 @@ API_BASE_URL = st.secrets["API_BASE_URL"]
 API_KEY = st.secrets["API_KEY"]
 USER_POOL_ID = st.secrets["USER_POOL_ID"]
 CLIENT_ID = st.secrets["CLIENT_ID"]
-REGION_NAME = st.secrets["REGION_NAME"]
+AWS_REGION = st.secrets["AWS_DEFAULT_REGION"]
+S3_BUCKET_NAME = st.secrets["S3_BUCKET_NAME"]
+DYNAMODB_TABLE_NAME = st.secrets["DYNAMODB_TABLE_NAME"]
+
+s3_client = boto3.client("s3", region_name=AWS_REGION)
+dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+table = dynamodb.Table(DYNAMODB_TABLE_NAME)
+
+PROFESSOR_CONFIG = {
+    "drvinay": {
+        "index_name": "drvinay",
+        "s3_prefix": "data/pdfs/drvinay/",
+    },
+    "lewas": {
+        "index_name": "lewas",
+        "s3_prefix": "data/pdfs/lewas/",
+    },
+    "historyoftech": {
+        "index_name": "historyoftech",
+        "s3_prefix": "data/pdfs/historyoftech/",
+    },
+}
 
 # UI Customization Options
 THEMES = {
@@ -289,6 +313,7 @@ def sign_up():
     confirm_password = st.text_input(
         "Confirm Password", type="password", key="signup_confirm_password"
     )
+    is_instructor = st.toggle("I am an instructor", key="signup_is_instructor")
 
     # Password validation
     password_valid = False
@@ -359,7 +384,7 @@ def sign_up():
 
     if signup_button:
         try:
-            client = boto3.client("cognito-idp", region_name=REGION_NAME)
+            client = boto3.client("cognito-idp", region_name=AWS_REGION)
             response = client.sign_up(
                 ClientId=CLIENT_ID,
                 Username=email,
@@ -372,7 +397,10 @@ def sign_up():
                 "Sign up successful! Please check your email for verification code."
             )
             st.session_state.email = email
-            st.session_state.temp_password = password  # Store password temporarily
+            st.session_state.temp_password = password
+            st.session_state.temp_is_instructor = (
+                is_instructor  # Store this temporarily
+            )
             st.experimental_rerun()
         except ClientError as e:
             st.error(f"An error occurred: {str(e)}")
@@ -380,18 +408,178 @@ def sign_up():
 
 def sign_in(email, password):
     try:
-        client = boto3.client("cognito-idp", region_name=REGION_NAME)
+        client = boto3.client("cognito-idp", region_name=AWS_REGION)
         response = client.initiate_auth(
             ClientId=CLIENT_ID,
             AuthFlow="USER_PASSWORD_AUTH",
             AuthParameters={"USERNAME": email, "PASSWORD": password},
         )
         st.session_state.authenticated = True
-        st.session_state.auth_token = response["AuthenticationResult"]["IdToken"]
+        st.session_state.auth_token = response["AuthenticationResult"]["AccessToken"]
+
+        # Get user attributes to check if they're an instructor
+        user_info = client.get_user(AccessToken=st.session_state.auth_token)
+        is_instructor = next(
+            (
+                attr["Value"]
+                for attr in user_info["UserAttributes"]
+                if attr["Name"] == "custom:is_instructor"
+            ),
+            "false",
+        )
+        st.session_state.is_instructor = is_instructor.lower() == "true"
+
         return True
     except ClientError as e:
         st.error(f"An error occurred during sign in: {str(e)}")
         return False
+
+
+def instructor_portal():
+    st.sidebar.empty()  # Clear the sidebar
+    st.title("Instructor Portal")
+
+    # Button to go back to the main page
+    if st.button("Back to Main Page"):
+        st.session_state.show_instructor_portal = False
+        st.experimental_rerun()
+
+    # Dropdown to select professor
+    professor = st.selectbox("Select Professor", ["drvinay", "lewas", "historyoftech"])
+
+    # File upload
+    uploaded_file = st.file_uploader("Choose a file to upload", type=["pdf"])
+    if uploaded_file is not None:
+        if st.button("Upload File"):
+            if upload_to_s3(uploaded_file, professor):
+                st.success(f"File {uploaded_file.name} uploaded successfully!")
+            else:
+                st.error("Failed to upload file. Please try again.")
+
+    # Fetch documents from backend
+    documents = fetch_documents(professor)
+
+    # Display documents in a table
+    if documents:
+        # Remove documents with 0 bytes
+        documents = [doc for doc in documents if doc["Size (bytes)"] > 0]
+
+        df = pd.DataFrame(documents)
+
+        # Add a "Process" button for unprocessed documents
+        def process_button(filename, processed):
+            if processed == "No":
+                button_key = f"process_{filename}"
+                if st.button("Process", key=button_key):
+                    if trigger_processing(filename, professor):
+                        st.success(f"Processing triggered for {filename}")
+                        return "Processing..."
+                    else:
+                        st.error(f"Failed to trigger processing for {filename}")
+                        return "Failed"
+            return processed
+
+        df["Processed"] = df.apply(
+            lambda row: process_button(row["Document Name"], row["Processed"]),
+            axis=1,
+        )
+
+        # Reorder columns
+        df = df[["Document Name", "Upload Date", "Size (bytes)", "Processed"]]
+
+        # Display the table without index
+        st.table(df.set_index("Document Name"))
+    else:
+        st.write("No documents found for this professor.")
+
+
+def fetch_documents(professor):
+    """Main function to fetch documents for the professor page."""
+    if professor not in PROFESSOR_CONFIG:
+        return []
+
+    documents = get_professor_documents(professor)
+    # Sort documents by upload date (newest first)
+    documents.sort(key=lambda x: x["Upload Date"], reverse=True)
+    return documents
+
+
+def upload_to_s3(file, professor):
+    """Upload a file to S3 for a specific professor."""
+    s3_prefix = PROFESSOR_CONFIG[professor]["s3_prefix"]
+    s3_key = f"{s3_prefix}{file.name}"
+    try:
+        s3_client.upload_fileobj(file, S3_BUCKET_NAME, s3_key)
+        return True
+    except ClientError as e:
+        print(f"Error uploading file to S3: {e}")
+        return False
+
+
+def trigger_processing(filename, professor):
+    """Trigger the backend API to process a document."""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/process_document",
+            json={"filename": filename, "professor": professor},
+            headers={"Authorization": f"Bearer {st.session_state.auth_token}"},
+        )
+        return response.status_code == 200
+    except requests.RequestException as e:
+        print(f"Error triggering document processing: {e}")
+        return False
+
+
+def get_s3_documents(professor):
+    """Retrieve documents from S3 for a given professor."""
+    s3_prefix = PROFESSOR_CONFIG[professor]["s3_prefix"]
+    try:
+        response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=s3_prefix)
+        documents = []
+        for obj in response.get("Contents", []):
+            documents.append(
+                {
+                    "filename": os.path.basename(obj["Key"]),
+                    "last_modified": obj["LastModified"],
+                    "size": obj["Size"],
+                }
+            )
+        return documents
+    except ClientError as e:
+        print(f"Error retrieving S3 documents: {e}")
+        return []
+
+
+def get_processed_documents(professor):
+    """Retrieve processed documents from DynamoDB for a given professor."""
+    try:
+        response = table.scan(
+            FilterExpression=Attr("teacher").eq(professor),
+            ProjectionExpression="filename",
+        )
+        return {item["filename"] for item in response.get("Items", [])}
+    except ClientError as e:
+        print(f"Error retrieving processed documents from DynamoDB: {e}")
+        return set()
+
+
+def get_professor_documents(professor):
+    """Combine S3 and DynamoDB data to get complete document information."""
+    s3_documents = get_s3_documents(professor)
+    processed_documents = get_processed_documents(professor)
+
+    combined_documents = []
+    for doc in s3_documents:
+        combined_documents.append(
+            {
+                "Document Name": doc["filename"],
+                "Upload Date": doc["last_modified"].strftime("%Y-%m-%d %H:%M:%S"),
+                "Size (bytes)": doc["size"],
+                "Processed": "Yes" if doc["filename"] in processed_documents else "No",
+            }
+        )
+
+    return combined_documents
 
 
 def sign_in_page():
@@ -408,69 +596,115 @@ def sign_in_page():
 def authenticated_main():
     st.title("Educational Query Assistant")
 
-    # Sidebar for customization
-    st.sidebar.title("Customize Your Experience")
-    theme_name = st.sidebar.selectbox(
-        "Choose a theme",
-        list(THEMES.keys()),
-        index=list(THEMES.keys()).index("Accessible Dark"),
-    )
-    font = st.sidebar.selectbox("Choose a font", FONTS)
+    # Initialize theme and font with default values
+    theme_name = "Accessible Dark"
+    font = "Arial"
+
+    # Sidebar for customization and user preferences
+    with st.sidebar:
+        st.subheader("User Settings")
+        is_instructor = st.toggle(
+            "Instructor Mode", value=st.session_state.get("is_instructor", False)
+        )
+        st.session_state.is_instructor = is_instructor
+
+        if is_instructor:
+            if st.button("Instructor Portal"):
+                st.session_state.show_instructor_portal = True
+                st.experimental_rerun()
+
+        if not st.session_state.get("show_instructor_portal", False):
+            st.subheader("Query Settings")
+            teacher_name = st.selectbox(
+                "Select Teacher", ["drvinay", "lewas", "historyoftech"]
+            )
+
+            # Searchable language dropdown
+            st.subheader("Select Output Language")
+            target_language = searchable_dropdown(
+                LANGUAGES, "backend_language", default="english"
+            )
+
+            # Move theme and font selection to the bottom of the sidebar
+            st.markdown("---")  # Add a separator
+            st.subheader("Appearance Settings", help="Customize the app's look")
+            theme_name = st.selectbox(
+                "Theme",
+                list(THEMES.keys()),
+                index=list(THEMES.keys()).index("Accessible Dark"),
+            )
+            font = st.selectbox("Font", FONTS)
+
+        # Sign Out button
+        st.button("Sign Out", on_click=sign_out)
 
     # Apply custom CSS
     apply_custom_css(THEMES[theme_name], font)
 
-    # User preferences
-    teacher_name = st.selectbox("Select Teacher", ["drvinay", "lewas", "historyoftech"])
+    # Main content area
+    if st.session_state.get("show_instructor_portal", False):
+        instructor_portal()
+    else:
+        # Query input
+        prompt = st.text_area("Enter your question:", height=100)
 
-    # Searchable language dropdown
-    st.subheader("Select Output Language")
-    target_language = searchable_dropdown(
-        LANGUAGES, "backend_language", default="english"
-    )
+        if st.button("Submit Query"):
+            if prompt:
+                with st.spinner("Processing your query..."):
+                    result = send_query(prompt, teacher_name, target_language)
 
-    # Query input
-    prompt = st.text_area("Enter your question:", height=100)
+                if result and result.get("status") == "success":
+                    st.success("Query processed successfully!")
 
-    if st.button("Submit Query"):
-        if prompt:
-            with st.spinner("Processing your query..."):
-                result = send_query(prompt, teacher_name, target_language)
+                    # Display the results
+                    st.subheader("Professor's Notes")
+                    st.write(result["result"]["Professor's Notes"])
 
-            if result and result.get("status") == "success":
-                st.success("Query processed successfully!")
+                    st.subheader("Internet Notes")
+                    st.write(result["result"]["Internet Notes"])
 
-                # Display the results
-                st.subheader("Professor's Notes")
-                st.write(result["result"]["Professor's Notes"])
-
-                st.subheader("Internet Notes")
-                st.write(result["result"]["Internet Notes"])
-
-                st.subheader("Sources")
-                st.write("Professor's Sources:")
-                for source in result["result"]["Professor's Sources"]:
-                    st.write(f"- {source}")
-
-                st.write("Internet Sources:")
-                for source in result["result"]["Internet Sources"]:
-                    st.write(f"- {source}")
-
-                if result["result"]["Extra Sources"]:
-                    st.subheader("Extra Sources")
-                    for source in result["result"]["Extra Sources"]:
+                    st.subheader("Sources")
+                    st.write("Professor's Sources:")
+                    for source in result["result"]["Professor's Sources"]:
                         st.write(f"- {source}")
-            else:
-                st.error("Failed to process query. Please try again.")
-        else:
-            st.warning("Please enter a query before submitting.")
 
-    if st.sidebar.button("Sign Out"):
-        sign_out()
+                    st.write("Internet Sources:")
+                    for source in result["result"]["Internet Sources"]:
+                        st.write(f"- {source}")
+
+                    if result["result"]["Extra Sources"]:
+                        st.subheader("Extra Sources")
+                        for source in result["result"]["Extra Sources"]:
+                            st.write(f"- {source}")
+                else:
+                    st.error("Failed to process query. Please try again.")
+            else:
+                st.warning("Please enter a query before submitting.")
+
+
+def update_instructor_status(is_instructor):
+    try:
+        client = boto3.client("cognito-idp", region_name=AWS_REGION)
+        client.update_user_attributes(
+            UserAttributes=[
+                {"Name": "custom:is_instructor", "Value": str(is_instructor).lower()},
+            ],
+            AccessToken=st.session_state.auth_token,
+        )
+        st.session_state.is_instructor = is_instructor
+        st.success("Instructor status updated successfully!")
+    except ClientError as e:
+        st.error(f"Failed to update instructor status: {str(e)}")
 
 
 def sign_out():
-    st.session_state.authenticated = False
+    for key in [
+        "authenticated",
+        "auth_token",
+        "is_instructor",
+        "show_instructor_portal",
+    ]:
+        st.session_state.pop(key, None)
     st.success("Signed out successfully!")
     st.experimental_rerun()
 
@@ -481,7 +715,7 @@ def verify():
 
     if st.button("Verify", key="verify_button"):
         try:
-            client = boto3.client("cognito-idp", region_name=REGION_NAME)
+            client = boto3.client("cognito-idp", region_name=AWS_REGION)
             response = client.confirm_sign_up(
                 ClientId=CLIENT_ID,
                 Username=st.session_state.email,
@@ -491,8 +725,29 @@ def verify():
 
             # Attempt to sign in automatically
             if sign_in(st.session_state.email, st.session_state.temp_password):
+                # Set the custom attribute after successful sign-in
+                try:
+                    client.update_user_attributes(
+                        UserAttributes=[
+                            {
+                                "Name": "custom:is_instructor",
+                                "Value": str(
+                                    st.session_state.temp_is_instructor
+                                ).lower(),
+                            },
+                        ],
+                        AccessToken=st.session_state.auth_token,
+                    )
+                    st.session_state.is_instructor = st.session_state.temp_is_instructor
+                    print(f"Instructor status set to: {st.session_state.is_instructor}")
+                except ClientError as e:
+                    st.warning(
+                        f"User created, but failed to set instructor status: {str(e)}"
+                    )
+
                 st.session_state.pop("email", None)
                 st.session_state.pop("temp_password", None)
+                st.session_state.pop("temp_is_instructor", None)
                 st.experimental_rerun()
             else:
                 st.error(
@@ -500,6 +755,7 @@ def verify():
                 )
                 st.session_state.pop("email", None)
                 st.session_state.pop("temp_password", None)
+                st.session_state.pop("temp_is_instructor", None)
         except ClientError as e:
             st.error(f"An error occurred: {str(e)}")
 
