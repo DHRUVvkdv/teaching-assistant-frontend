@@ -742,6 +742,18 @@ def authenticated_main():
                     st.subheader("Internet Notes (Powered by Tavily)")
                     st.write(result["result"]["Internet Notes"])
 
+                    st.subheader("Cross-Verification and Contradictions")
+                    contradictions = result["result"][
+                        "Cross-Verification and Contradictions"
+                    ]
+                    if (
+                        contradictions
+                        and contradictions.lower() != "no contradictions found."
+                    ):
+                        st.warning(contradictions)
+                    else:
+                        st.info("No contradictions found between the sources.")
+
                     st.subheader("Sources")
                     st.write("Professor's Sources:")
                     for source in result["result"]["Professor's Sources"]:
