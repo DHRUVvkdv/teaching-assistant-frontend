@@ -26,7 +26,7 @@
 #                 st.info(
 #                     "If your email is registered, you will receive a confirmation code."
 #                 )
-#                 st.experimental_rerun()
+#                 st.rerun()
 #             else:
 #                 st.error("Please enter a valid email address.")
 
@@ -68,6 +68,6 @@
 #         if st.button("Change Email"):
 #             st.session_state.reset_stage = "request"
 #             st.session_state.reset_email_value = ""
-#             st.experimental_rerun()
+#             st.rerun()
 
 #     st.write("Debug: Exiting forgot_password_form()")  # Debug line

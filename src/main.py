@@ -455,7 +455,7 @@ def sign_up():
             st.session_state.temp_is_instructor = (
                 is_instructor  # Store this temporarily
             )
-            st.experimental_rerun()
+            st.rerun()
         except ClientError as e:
             st.error(f"An error occurred: {str(e)}")
 
@@ -496,7 +496,7 @@ def instructor_portal():
     # Button to go back to the main page
     if st.button("Back to Main Page"):
         st.session_state.show_instructor_portal = False
-        st.experimental_rerun()
+        st.rerun()
 
     # Dropdown to select professor
     professor = st.selectbox("Select Professor", ["drvinay", "lewas", "historyoftech"])
@@ -532,7 +532,7 @@ def instructor_portal():
                 st.success(f"Processing triggered for all documents of {professor}")
                 st.info("Refreshing page to show updated status...")
                 time.sleep(2)  # Give a moment for the user to read the message
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Failed to trigger processing for all documents")
     else:
@@ -540,7 +540,7 @@ def instructor_portal():
 
     # Add a refresh button
     if st.button("Refresh Document Status"):
-        st.experimental_rerun()
+        st.rerun()
 
 
 def fetch_documents(professor):
@@ -658,7 +658,7 @@ def sign_in_page():
     if st.button("Sign In", key="signin_button"):
         if sign_in(email, password):
             st.success("Signed in successfully!")
-            st.experimental_rerun()
+            st.rerun()
 
 
 def authenticated_main():
@@ -679,7 +679,7 @@ def authenticated_main():
         if is_instructor:
             if st.button("Instructor Portal"):
                 st.session_state.show_instructor_portal = True
-                st.experimental_rerun()
+                st.rerun()
 
         if not st.session_state.get("show_instructor_portal", False):
             st.subheader("Query Settings")
@@ -797,7 +797,7 @@ def sign_out():
     ]:
         st.session_state.pop(key, None)
     st.success("Signed out successfully!")
-    st.experimental_rerun()
+    st.rerun()
 
 
 def verify():
@@ -839,7 +839,7 @@ def verify():
                 st.session_state.pop("email", None)
                 st.session_state.pop("temp_password", None)
                 st.session_state.pop("temp_is_instructor", None)
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error(
                     "Verification successful, but automatic sign-in failed. Please sign in manually."
