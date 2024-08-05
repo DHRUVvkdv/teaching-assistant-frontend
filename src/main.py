@@ -24,6 +24,9 @@ s3_client = boto3.client("s3", region_name=AWS_REGION)
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
+ENABLE_LOGIN = False  # Set this to False to disable login functionality
+
+
 PROFESSOR_CONFIG = {
     "drvinay": {
         "index_name": "drvinay",
@@ -352,12 +355,15 @@ def searchable_dropdown(
 
 
 def unauthenticated_main():
-    st.title("Educational Query Assistant")
-    tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
-    with tab1:
-        sign_in_page()
-    with tab2:
-        sign_up()
+    st.title("Educational Query Assistant (Login Disabled for demo)")
+    if ENABLE_LOGIN:
+        tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
+        with tab1:
+            sign_in_page()
+        with tab2:
+            sign_up()
+    else:
+        authenticated_main()
 
 
 def sign_up():
@@ -662,7 +668,7 @@ def sign_in_page():
 
 
 def authenticated_main():
-    st.title("Educational Query Assistant")
+    st.title("Educational Query Assistant (Login Disabled for demo)")
 
     # Initialize theme and font with default values
     theme_name = "Accessible Dark"
@@ -709,6 +715,15 @@ def authenticated_main():
                 index=list(THEMES.keys()).index("Accessible Dark"),
             )
             font = st.selectbox("Font", FONTS)
+
+        # Add contact information for issues
+        st.sidebar.title("Contact Us")
+        st.sidebar.info(
+            """
+        Is something wrong? Email [lewas.vt@outlook.com](mailto:lewas.vt@outlook.com) or message on 
+        [LinkedIn](https://www.linkedin.com/in/dhruvvarshneyvk/).
+        """
+        )
 
         # Sign Out button
         st.button("Sign Out", on_click=sign_out)
@@ -852,15 +867,18 @@ def verify():
 
 
 def main():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+    if ENABLE_LOGIN:
+        if "authenticated" not in st.session_state:
+            st.session_state.authenticated = False
 
-    if st.session_state.authenticated:
-        authenticated_main()
-    elif "email" in st.session_state:
-        verify()
+        if st.session_state.authenticated:
+            authenticated_main()
+        elif "email" in st.session_state:
+            verify()
+        else:
+            unauthenticated_main()
     else:
-        unauthenticated_main()
+        authenticated_main()
 
 
 if __name__ == "__main__":
