@@ -24,7 +24,7 @@ s3_client = boto3.client("s3", region_name=AWS_REGION)
 dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
 table = dynamodb.Table(DYNAMODB_TABLE_NAME)
 
-ENABLE_LOGIN = False  # Set this to False to disable login functionality
+ENABLE_LOGIN = True  # Set this to False to disable login functionality
 
 
 PROFESSOR_CONFIG = {
